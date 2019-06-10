@@ -1,0 +1,39 @@
+{
+  "name": "@terragon/api",
+  "version": "1.0.0",
+  "description": "Secure API For Database Writes",
+  "main": "index.js",
+  "scripts": {
+    "build-ts": "tsc",
+    "start": "npm run serve",
+    "serve": "node dist/server.js",
+    "watch-node": "nodemon dist/server.js",
+    "watch-ts": "tsc -w",
+    "rxmike": "cd ../../rxhttp && npm run build && cd ../rxcouch && npm install ../rxhttp && npm run build && cd ../terragon-social-club/api && npm install ../../rxcouch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/terragon-social-club/api.git"
+  },
+  "author": "Mike Keen",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/terragon-social-club/api/issues"
+  },
+  "homepage": "https://github.com/terragon-social-club/api#readme",
+  "devDependencies": {
+    "nodemon": "^1.19.1",
+    "ts-interface-builder": "^0.1.8",
+    "tslint": "^5.17.0",
+    "typescript": "^3.5.1"
+  },
+  "dependencies": {
+    "@mkeen/rxcouch": "file:../../rxcouch",
+    "@types/express": "^4.17.0",
+    "express": "^4.17.1",
+    "ts-interface-checker": "^0.1.7"
+  },
+  "peerDependencies": {
+    "rxjs": "6.2.2"
+  }
+}
