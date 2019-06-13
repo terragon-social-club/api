@@ -44,5 +44,5 @@ app.get('/', (req: any, res: any) => {
   res.end("hi");
 })
 
-app.listen(3000, () => console.log('Dev mode on port 3000 online'));
+app.listen(3000, '127.0.0.1');
 
