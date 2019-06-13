@@ -40,8 +40,4 @@ app.post('/user', (req: any, res: any) => {
 
 });
 
-app.get('/', (req: any, res: any) => {
-  res.end("hi");
-})
-
 app.listen(3000, '127.0.0.1');
