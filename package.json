@@ -1,6 +1,6 @@
 {
   "name": "@terragon/api",
-  "version": "1.5.10",
+  "version": "1.5.12",
   "description": "Secure API For Database Writes",
   "main": "index.js",
   "scripts": {
