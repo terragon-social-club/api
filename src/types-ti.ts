@@ -5,13 +5,23 @@ import * as t from "ts-interface-checker";
 // tslint:disable:object-literal-key-quotes
 
 export const Member = t.iface([], {
+  "_id": t.opt("string"),
+  "_rev": t.opt("string"),
   "first_name": "string",
   "last_name": "string",
   "handle": "string",
   "phone": "string",
+  "email": "string",
+});
+
+export const Card = t.iface([], {
+  "account_number": "string",
+  "expiration_month": "number",
+  "expiration_year": "number",
 });
 
 const exportedTypeSuite: t.ITypeSuite = {
   Member,
+  Card,
 };
 export default exportedTypeSuite;

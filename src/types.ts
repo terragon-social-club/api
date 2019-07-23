@@ -7,3 +7,9 @@ export interface Member {
   phone: string;
   email: string;
 }
+
+export interface Card {
+  account_number: string;
+  expiration_month: number;
+  expiration_year: number;
+}
