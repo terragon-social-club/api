@@ -4,13 +4,24 @@
 import * as t from "ts-interface-checker";
 // tslint:disable:object-literal-key-quotes
 
+export const ValidatorError = t.iface([], {
+  "field_name": "string",
+  "message": "string",
+});
+
+export const ValidatorResult = t.iface([], {
+  "error": "boolean",
+  "detail": t.opt("ValidatorError"),
+});
+
 export const Member = t.iface([], {
   "_id": t.opt("string"),
   "_rev": t.opt("string"),
-  "first_name": "string",
-  "last_name": "string",
-  "handle": "string",
-  "phone": "string",
+  "name": "string",
+  "username": "string",
+  "password": "string",
+  "password_confirm": t.opt("string"),
+  "phone": t.opt("string"),
   "email": "string",
 });
 
@@ -21,6 +32,8 @@ export const Card = t.iface([], {
 });
 
 const exportedTypeSuite: t.ITypeSuite = {
+  ValidatorError,
+  ValidatorResult,
   Member,
   Card,
 };

@@ -1,10 +1,21 @@
+export interface ValidatorError {
+  field_name: string;
+  message: string;
+}
+
+export interface ValidatorResult {
+  error: boolean;
+  detail?: ValidatorError;
+}
+
 export interface Member {
   _id?: string;
   _rev?: string;
-  first_name: string;
-  last_name: string;
-  handle: string;
-  phone: string;
+  name: string;
+  username: string;
+  password: string;
+  password_confirm?: string;
+  phone?: string;
   email: string;
 }
 

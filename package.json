@@ -32,6 +32,8 @@
   "dependencies": {
     "@mkeen/rxcouch": "2.8.4",
     "express": "^4.17.1",
+    "legit": "^1.0.5",
+    "libphonenumber-js": "^1.7.21",
     "rxjs": "6.2.2",
     "stripe": "^7.4.0",
     "ts-interface-checker": "^0.1.7"
