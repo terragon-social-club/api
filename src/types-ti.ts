@@ -5,7 +5,7 @@ import * as t from "ts-interface-checker";
 // tslint:disable:object-literal-key-quotes
 
 export const ValidatorError = t.iface([], {
-  "field_name": "string",
+  "field": "string",
   "message": "string",
 });
 
@@ -17,8 +17,8 @@ export const ValidatorResult = t.iface([], {
 export const Member = t.iface([], {
   "_id": t.opt("string"),
   "_rev": t.opt("string"),
+  "person_name": "string",
   "name": "string",
-  "username": "string",
   "password": "string",
   "password_confirm": t.opt("string"),
   "phone": t.opt("string"),

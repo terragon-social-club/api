@@ -1,7 +1,7 @@
 import express from 'express';
 import Stripe from "stripe";
 import { of, Observable, Observer, zip } from 'rxjs';
-import { take } from 'rxjs/operators';
+import { take, } from 'rxjs/operators';
 
 import { Member, Card, ValidatorResult } from './types';
 
@@ -11,6 +11,7 @@ const { Member, Card } = createCheckers(typesTI);
 import { parsePhoneNumber } from 'libphonenumber-js';
 
 import { CouchDB, AuthorizationBehavior, CouchDBDocument } from '@mkeen/rxcouch';
+import { CouchDBDocumentRevisionResponse } from '@mkeen/rxcouch/dist/types';
 
 const legit = require('legit');
 
@@ -21,8 +22,8 @@ app.use(express.json());
 
 const stripe = new Stripe(process.env.STRIPE_KEY);
 
-const couch = new CouchDB({
-  dbName: 'users',
+const couchDbUsers = new CouchDB({
+  dbName: '_users',
   host: 'localhost',
   port: 5984,
   ssl: false,
@@ -41,13 +42,15 @@ app.use(function(req, res, next) {
   next();
 });
 
-const checkIfUserExists = (byValue: string, callback: (exists: boolean) => void, byField = 'username') => {
+const checkIfUserExists = (byValue: string, callback: (exists: boolean) => void, byField = 'name') => {
   let selector: any = {}
   selector[byField] = byValue;
 
-  couch.find({
+  console.log(byValue, byField, selector);
+  couchDbUsers.find({
     selector
   }).pipe(take(1)).subscribe((documents: CouchDBDocument[]) => {
+    console.log(documents)
     callback(documents.length > 0);
   });
 
@@ -61,6 +64,10 @@ const validateUsername = (username: any) => {
   const normalizedUsername = username.toLowerCase();
 
   if (normalizedUsername.includes('admin') || normalizedUsername.includes('terragon')) {
+    return false;
+  }
+
+  if (username.length < 3) {
     return false;
   }
 
@@ -94,7 +101,7 @@ app.post('/user', (req: any, res: any) => {
           if (result.isValid) {
             checkIfUserExists(incoming.email, (exists: boolean) => {
               if (exists) {
-                observer.next({ error: true, detail: { field_name: 'email', message: 'A user with this email address already exists.' } });
+                observer.next({ error: true, detail: { field: 'email', message: 'exists' } });
               } else {
                 observer.next({ error: false });
               }
@@ -102,37 +109,37 @@ app.post('/user', (req: any, res: any) => {
             }, 'email');
 
           } else {
-            observer.next({ error: true, detail: { field_name: 'email', message: 'Invalid Email Address' } });
+            observer.next({ error: true, detail: { field: 'email', message: 'invalid' } });
           }
 
         })
         .catch(
           (_err: any) => {
-            observer.next({ error: true, detail: { field_name: 'email', message: 'Invalid Email Address' } });
+            observer.next({ error: true, detail: { field: 'email', message: 'invalid' } });
           }
 
         );
 
     }),
 
-    // Name
+    // Person Name
     Observable.create((observer: Observer<ValidatorResult>) => {
-      if (incoming.name.length) {
+      if (incoming.person_name.length) {
         observer.next({ error: false });
       } else {
-        observer.next({ error: true, detail: { field_name: 'name', message: 'Name is Required' } });
+        observer.next({ error: true, detail: { field: 'person_name', message: 'required' } });
       }
 
     }),
 
-    // Username
+    // Name (username)
     Observable.create((observer: Observer<ValidatorResult>) => {
-      if (!validateUsername(incoming.username)) {
-        observer.next({ error: true, detail: { field_name: 'username', message: 'Invalid Username' } });
+      if (!validateUsername(incoming.name)) {
+        observer.next({ error: true, detail: { field: 'name', message: 'invalid' } });
       } else {
-        checkIfUserExists(incoming.username, (exists: boolean) => {
+        checkIfUserExists(incoming.name, (exists: boolean) => {
           if (exists) {
-            observer.next({ error: true, detail: { field_name: 'username', message: 'Username is taken.' } });
+            observer.next({ error: true, detail: { field: 'name', message: 'exists' } });
           } else {
             observer.next({ error: false });
           }
@@ -156,11 +163,11 @@ app.post('/user', (req: any, res: any) => {
             incoming.phone = phoneNumber.formatInternational();
             observer.next({ error: false });
           } else {
-            observer.next({ error: true, detail: { field_name: 'phone', message: 'Invalid Phone Number' } });
+            observer.next({ error: true, detail: { field: 'phone', message: 'invalid' } });
           }
 
         } catch (e) {
-          observer.next({ error: true, detail: { field_name: 'phone', message: 'Invalid Phone Number' } });
+          observer.next({ error: true, detail: { field: 'phone', message: 'invalid' } });
         }
 
       }
@@ -170,11 +177,11 @@ app.post('/user', (req: any, res: any) => {
     // Password
     Observable.create((observer: Observer<ValidatorResult>) => {
       if (!incoming.password.length) {
-        observer.next({ error: true, detail: { field_name: 'password', message: 'Passwords must be at least 8 characters long.' } });
+        observer.next({ error: true, detail: { field: 'password', message: 'required' } });
       } else if (incoming.password.length < 8) {
-        observer.next({ error: true, detail: { field_name: 'password', message: 'Passwords must be at least 8 characters long.' } });
+        observer.next({ error: true, detail: { field: 'password', message: 'short' } });
       } else if (incoming.password !== incoming.password_confirm) {
-        observer.next({ error: true, detail: { field_name: 'password', message: 'Passwords must match.' } });
+        observer.next({ error: true, detail: { field: 'password', message: 'mismatch' } });
       } else {
         observer.next({ error: false });
       }
@@ -188,23 +195,33 @@ app.post('/user', (req: any, res: any) => {
     .subscribe((validators: ValidatorResult[]) => {
       const errors = validators.filter(error => error.error === true);
       if (errors.length) {
-        res.end(JSON.stringify(errors));
+        res.end(JSON.stringify({ errors }));
       } else {
-        couch.doc(incoming)
+        delete incoming['password_confirm'];
+        const newUserDocument = Object.assign(incoming, {
+          _id: `org.couchdb.user:${incoming.name}`,
+          roles: ['founding_member', 'member'],
+          type: 'user',
+          name: incoming.name
+        });
+
+        couchDbUsers.doc(newUserDocument)
           .pipe(take(1))
-          .subscribe((newDoc: CouchDBDocument) => {
+          .subscribe((newUserDoc: CouchDBDocument) => {
             stripe.customers.create({
-              email: newDoc.email,
+              email: newUserDoc.email,
               metadata: {
-                userId: newDoc._id
+                userId: newUserDoc._id
               }
 
             }, (err: any, customer: any) => {
-              let doc = newDoc;
+              let doc = newUserDoc;
               doc.stripe_id = customer.id;
-              couch.doc(doc).subscribe((savedDoc: CouchDBDocument) => {
-                res.end(JSON.stringify(savedDoc._id))
-              }).unsubscribe();
+              couchDbUsers.doc(doc)
+                .pipe(take(1))
+                .subscribe((savedDoc: CouchDBDocument) => {
+                  res.end(JSON.stringify({ created: savedDoc._id }))
+                });
 
             });
 
@@ -220,7 +237,7 @@ app.post('/user/:userId/card', (req: any, res: any) => {
   res.setHeader('Content-Type', 'application/json');
   Card.strictCheck(req.body);
   const incoming: Card = req.body;
-  couch.find({
+  couchDbUsers.find({
     selector: {
       "_id": req.params.userId
     }

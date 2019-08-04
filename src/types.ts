@@ -1,5 +1,5 @@
 export interface ValidatorError {
-  field_name: string;
+  field: string;
   message: string;
 }
 
@@ -11,8 +11,8 @@ export interface ValidatorResult {
 export interface Member {
   _id?: string;
   _rev?: string;
+  person_name: string;
   name: string;
-  username: string;
   password: string;
   password_confirm?: string;
   phone?: string;
