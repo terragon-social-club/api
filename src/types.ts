@@ -19,6 +19,11 @@ export interface Member {
   email: string;
 }
 
+export interface FoundingMemberSignup {
+  card: Card;
+  contribution: string;
+}
+
 export interface Card {
   account_number: string;
   expiration_month: number;

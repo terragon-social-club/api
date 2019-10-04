@@ -3,7 +3,7 @@ import Stripe from "stripe";
 import { of, Observable, Observer, zip } from 'rxjs';
 import { take, } from 'rxjs/operators';
 
-import { Member, Card, ValidatorResult } from './types';
+import { Member, Card, ValidatorResult, FoundingMemberSignup } from './types';
 
 import typesTI from "./types-ti";
 import { createCheckers } from "ts-interface-checker";
@@ -24,6 +24,19 @@ const stripe = new Stripe(process.env.STRIPE_KEY);
 
 const couchDbUsers = new CouchDB({
   dbName: '_users',
+  host: 'localhost',
+  port: 5984,
+  ssl: false,
+  trackChanges: false
+}, AuthorizationBehavior.cookie,
+  of({
+    username: process.env.COUCH_USER,
+    password: process.env.COUCH_PASS
+  })
+);
+
+const couchDbUserProfiles = new CouchDB({
+  dbName: 'user_profiles',
   host: 'localhost',
   port: 5984,
   ssl: false,
@@ -200,7 +213,7 @@ app.post('/user', (req: any, res: any) => {
         delete incoming['password_confirm'];
         const newUserDocument = Object.assign(incoming, {
           _id: `org.couchdb.user:${incoming.name}`,
-          roles: ['founding_member', 'member'],
+          roles: ['pending_member', 'member'],
           type: 'user',
           name: incoming.name
         });
@@ -220,7 +233,14 @@ app.post('/user', (req: any, res: any) => {
               couchDbUsers.doc(doc)
                 .pipe(take(1))
                 .subscribe((savedDoc: CouchDBDocument) => {
-                  res.end(JSON.stringify({ created: savedDoc._id }))
+                  couchDbUserProfiles.doc({
+                    name: incoming.name,
+                    roles: savedDoc.roles
+                  }).pipe(take(1))
+                    .subscribe((newUserProfileDoc) => {
+                      res.end(JSON.stringify(newUserProfileDoc));
+                    });
+
                 });
 
             });
@@ -233,10 +253,10 @@ app.post('/user', (req: any, res: any) => {
 
 });
 
-app.post('/user/:userId/card', (req: any, res: any) => {
+app.post('/user/:userId/order', (req: any, res: any) => {
   res.setHeader('Content-Type', 'application/json');
   Card.strictCheck(req.body);
-  const incoming: Card = req.body;
+  const incoming: FoundingMemberSignup = req.body;
   couchDbUsers.find({
     selector: {
       "_id": req.params.userId
@@ -258,9 +278,9 @@ app.post('/user/:userId/card', (req: any, res: any) => {
             (<any>stripe).paymentMethods.create({
               type: 'card',
               card: {
-                number: incoming.account_number,
-                exp_month: incoming.expiration_month,
-                exp_year: incoming.expiration_year
+                number: incoming.card.account_number,
+                exp_month: incoming.card.expiration_month,
+                exp_year: incoming.card.expiration_year
               }
 
             }, (err: any, paymentMethod: any) => {

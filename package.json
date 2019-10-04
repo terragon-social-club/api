@@ -23,19 +23,19 @@
   "homepage": "https://github.com/terragon-social-club/api#readme",
   "devDependencies": {
     "@types/express": "^4.17.0",
-    "@types/stripe": "^6.31.9",
+    "@types/stripe": "^6.31.14",
     "nodemon": "^1.19.1",
     "ts-interface-builder": "^0.1.8",
     "tslint": "^5.17.0",
     "typescript": "^3.5.3"
   },
   "dependencies": {
-    "@mkeen/rxcouch": "2.8.13",
+    "@mkeen/rxcouch": "*3.1.0",
     "express": "^4.17.1",
     "legit": "^1.0.5",
-    "libphonenumber-js": "^1.7.21",
+    "libphonenumber-js": "^1.7.22",
     "rxjs": "6.2.2",
-    "stripe": "^7.5.0",
+    "stripe": "^7.7.0",
     "ts-interface-checker": "^0.1.7"
   }
 }

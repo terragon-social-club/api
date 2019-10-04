@@ -25,6 +25,11 @@ export const Member = t.iface([], {
   "email": "string",
 });
 
+export const FoundingMemberSignup = t.iface([], {
+  "card": "Card",
+  "contribution": "string",
+});
+
 export const Card = t.iface([], {
   "account_number": "string",
   "expiration_month": "number",
@@ -35,6 +40,7 @@ const exportedTypeSuite: t.ITypeSuite = {
   ValidatorError,
   ValidatorResult,
   Member,
+  FoundingMemberSignup,
   Card,
 };
 export default exportedTypeSuite;
