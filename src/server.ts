@@ -25,59 +25,71 @@ const shouldConnect: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(fal
 
 let stayConnected: Observable<boolean> | null = null;
 
-const openCouchDBConnections = () => {
-  const credentials: Observable<CouchDBCredentials> = Observable.create((observer: Observer<CouchDBCredentials>) => {
-    shouldConnect
-      .pipe(
-        skip(1),
-        take(1)
-      )
-      .subscribe((_should) => {
-        observer.next({
-          username: process.env.COUCH_USER,
-          password: process.env.COUCH_PASS
-        })
+const credentials: Observable<CouchDBCredentials> = Observable.create((observer: Observer<CouchDBCredentials>) => {
+  shouldConnect
+    .pipe(
+      skip(1),
+      take(1)
+    )
+    .subscribe((_should) => {
+      observer.next({
+        username: process.env.COUCH_USER,
+        password: process.env.COUCH_PASS
       })
-  });
 
-  const cycle = () => {
-    if (couchDbUsers === null && couchDbUserProfiles === null) {
-      couchDbUsers = new CouchDB({
+    })
+
+});
+
+const cycle = () => {
+  if (couchDbUsers === null && couchDbUserProfiles === null) {
+    couchDbUsers = new CouchDB(
+      {
         dbName: '_users',
         host: 'localhost',
         port: 5984,
         ssl: false,
         trackChanges: false
-      }, AuthorizationBehavior.cookie,
-        credentials
-      );
+      },
 
-      couchDbUserProfiles = new CouchDB({
+      AuthorizationBehavior.cookie,
+      credentials
+    );
+
+    couchDbUserProfiles = new CouchDB(
+      {
         dbName: 'user_profiles',
         host: 'localhost',
         port: 5984,
         ssl: false,
         trackChanges: false
-      }, AuthorizationBehavior.cookie,
-        credentials
-      );
+      },
 
-      shouldConnect.next(true);
-    }
+      AuthorizationBehavior.cookie,
+      credentials
+    );
 
+    shouldConnect.next(true);
   }
 
-  return Observable.create((observer1: Observer<boolean>) => {
+}
+
+const openCouchDBConnections = () => {
+  return Observable.create((mainObserver: Observer<boolean>) => {
     of(true)
-      .pipe(tap(cycle), tap(() => {
-        observer1.next(true);
-      }))
+      .pipe(
+        tap(cycle),
+        tap(() => {
+          mainObserver.next(true);
+        }),
+        take(1),
+      )
       .subscribe((_true) => {
         interval(5000)
           .pipe(
             tap(cycle)
           ).subscribe(() => {
-            observer1.next(true);
+            mainObserver.next(true);
           });
 
       });
@@ -86,56 +98,60 @@ const openCouchDBConnections = () => {
 
 }
 
-let app = express();
+let app: any;
+
+const checkIfUserExists = (byValue: string, callback: (exists: boolean) => void, byField = 'name') => {
+  let selector: any = {}
+  selector[byField] = byValue;
+
+  couchDbUsers.find({
+    selector
+  }).pipe(take(1)).subscribe((documents: CouchDBDocument[]) => {
+    console.log("found", documents, couchDbUsers.authenticated.value)
+    callback(documents.length > 0);
+  });
+
+}
+
+const validateUsername = (username: any) => {
+  if (!(typeof username === 'string')) {
+    return false;
+  }
+
+  const normalizedUsername = username.toLowerCase();
+
+  if (normalizedUsername.includes('admin') || normalizedUsername.includes('terragon')) {
+    return false;
+  }
+
+  if (username.length < 3) {
+    return false;
+  }
+
+  const pattern = /^[\w0-9]+$/;
+  if (!username.match(pattern)) {
+    return false;
+  }
+
+  return true;
+}
 
 const startExpress = () => {
+  if (runningApp !== null) {
+    runningApp.close();
+    runningApp = null;
+  }
+
   app = express();
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
 
-  app.use(function(_req, res, next) {
+  app.use(function(_req: any, res: any, next: any) {
     res.header("Access-Control-Allow-Origin", "http://localhost:4200"); // update to match the domain you will make the request from
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     next();
   });
-
-  const checkIfUserExists = (byValue: string, callback: (exists: boolean) => void, byField = 'name') => {
-    let selector: any = {}
-    selector[byField] = byValue;
-
-    console.log(byValue, byField, selector);
-    couchDbUsers.find({
-      selector
-    }).pipe(take(1)).subscribe((documents: CouchDBDocument[]) => {
-      console.log(documents)
-      callback(documents.length > 0);
-    });
-
-  }
-
-  const validateUsername = (username: any) => {
-    if (!(typeof username === 'string')) {
-      return false;
-    }
-
-    const normalizedUsername = username.toLowerCase();
-
-    if (normalizedUsername.includes('admin') || normalizedUsername.includes('terragon')) {
-      return false;
-    }
-
-    if (username.length < 3) {
-      return false;
-    }
-
-    const pattern = /^[\w0-9]+$/;
-    if (!username.match(pattern)) {
-      return false;
-    }
-
-    return true;
-  }
 
   app.get('/user/exists/:userId', (req: any, res: any) => {
     res.setHeader('Content-Type', 'application/json');
@@ -289,6 +305,7 @@ const startExpress = () => {
                         username: incoming.name,
                         password: incoming.password
                       })
+
                     );
 
                     tempCouchDbSession.authenticated
@@ -359,7 +376,7 @@ const startExpress = () => {
                     payment_method_types: ['card'],
                     //setup_future_usage: 'off_session',
                     payment_method: paymentMethod.id
-                  }, (err: any, paymentIntent: any) => {
+                  }, (err: any, _paymentIntent: any) => {
                     if (!err) {
 
                     } else {
@@ -385,8 +402,6 @@ const startExpress = () => {
 
 }
 
-startExpress();
-
 let runningApp: any = null;
 
 openCouchDBConnections()
@@ -395,13 +410,14 @@ openCouchDBConnections()
     // ensure only one instance of this occuring at a time by doing this:
     if (stayConnected === null) {
       stayConnected = Observable.create((observer: Observer<boolean>) => {
-        zip(couchDbUsers.getSession(), couchDbUserProfiles.getSession())
-          .pipe(
-            take(1),
-          )
+        zip(couchDbUsers.getSession(),
+          couchDbUserProfiles.getSession())
+          .pipe(take(1))
           .subscribe(
-            (_session: any) => {
+            (_sessions: CouchDBSessionEnvelope[]) => {
               if (runningApp === null) {
+                startExpress();
+                console.log("starting http server");
                 runningApp = app.listen(3000, '127.0.0.1', () => {
                   observer.next(true);
                 });
@@ -413,21 +429,23 @@ openCouchDBConnections()
             },
 
             (_err: any) => {
-              console.log("Could not connect to server.");
+              console.log("could not connect to couchdb");
               if (runningApp !== null) {
+                console.log("stopping http server");
                 runningApp.close();
                 runningApp = null;
               }
 
               observer.next(true);
-            });
+            }
+
+          );
 
       });
 
-      stayConnected.pipe(take(1))
-        .subscribe((_stay: any) => {
-          stayConnected = null;
-        });
+      stayConnected.pipe(take(1)).subscribe((_stay: any) => {
+        stayConnected = null;
+      });
 
     }
 
