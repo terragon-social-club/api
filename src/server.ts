@@ -14,6 +14,7 @@ import { parsePhoneNumber } from 'libphonenumber-js';
 import { CouchDB, AuthorizationBehavior, CouchDBDocument } from '@mkeen/rxcouch';
 import { CouchDBSessionEnvelope, CouchDBCredentials } from '@mkeen/rxcouch/dist/types';
 
+const legit = require('legit');
 
 const stripe = new Stripe(process.env.STRIPE_KEY);
 
