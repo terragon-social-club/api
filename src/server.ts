@@ -398,7 +398,7 @@ let runningApp: any = null;
 
 openCouchDBConnections()
   .subscribe((_a: any) => {
-    // Each 60 seconds, this fires. This is the process responsible for keeping the admin connection to couch open and authed
+    // Each 5 seconds, this fires. This is the process responsible for keeping the admin connection to couch open and authed
     // ensure only one instance of this occuring at a time by doing this:
     if (stayConnected === null) {
       stayConnected = Observable.create((observer: Observer<boolean>) => {
