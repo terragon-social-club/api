@@ -1,9 +1,8 @@
 import express from 'express';
-const cookieParser = require('cookie-parser')
 
 import Stripe from "stripe";
 import { of, Observable, Observer, zip, interval, BehaviorSubject } from 'rxjs';
-import { take, filter, tap, skip, map } from 'rxjs/operators';
+import { take, filter, tap, skip } from 'rxjs/operators';
 
 import { Member, ValidatorResult, FoundingMemberPayment } from './types';
 
@@ -13,9 +12,8 @@ const { Member, FoundingMemberPayment } = createCheckers(typesTI);
 import { parsePhoneNumber } from 'libphonenumber-js';
 
 import { CouchDB, AuthorizationBehavior, CouchDBDocument } from '@mkeen/rxcouch';
-import { CouchDBDocumentRevisionResponse, CouchDBSession, CouchDBSessionEnvelope, CouchDBCredentials } from '@mkeen/rxcouch/dist/types';
+import { CouchDBSessionEnvelope, CouchDBCredentials } from '@mkeen/rxcouch/dist/types';
 
-const legit = require('legit');
 
 const stripe = new Stripe(process.env.STRIPE_KEY);
 
@@ -25,8 +23,6 @@ let couchDbUserProfiles: CouchDB | null = null;
 const shouldConnect: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
 
 let stayConnected: Observable<boolean> | null = null;
-
-let appListening = false;
 
 const openCouchDBConnections = () => {
   const credentials: Observable<CouchDBCredentials> = Observable.create((observer: Observer<CouchDBCredentials>) => {
@@ -96,7 +92,7 @@ const startExpress = () => {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
 
-  app.use(function(req, res, next) {
+  app.use(function(_req, res, next) {
     res.header("Access-Control-Allow-Origin", "http://localhost:4200"); // update to match the domain you will make the request from
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
@@ -275,12 +271,12 @@ const startExpress = () => {
                   userId: newUserDoc._id
                 }
 
-              }, (err: any, customer: any) => {
+              }, (_err: any, customer: any) => {
                 let doc = newUserDoc;
                 doc.stripe_id = customer.id;
                 couchDbUsers.doc(doc)
                   .pipe(take(1))
-                  .subscribe((savedDoc: CouchDBDocument) => {
+                  .subscribe((_savedDoc: CouchDBDocument) => {
                     const tempCouchDbSession = new CouchDB({
                       dbName: 'user_profiles',
                       host: 'localhost',
@@ -302,10 +298,6 @@ const startExpress = () => {
                         tempCouchDbSession
                           .getSession()
                           .subscribe((response: CouchDBSessionEnvelope) => {
-                            const parts = response.cookie.split('=');
-                            const cookieName = parts.shift();
-                            const cookieValue = parts.join('=');
-
                             res.set('Set-Cookie', response.cookie);
                             res.end(JSON.stringify(response.session));
                           });
