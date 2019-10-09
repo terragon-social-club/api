@@ -1,17 +1,19 @@
 import express from 'express';
+const cookieParser = require('cookie-parser')
+
 import Stripe from "stripe";
-import { of, Observable, Observer, zip } from 'rxjs';
-import { take, } from 'rxjs/operators';
+import { of, Observable, Observer, zip, interval, BehaviorSubject } from 'rxjs';
+import { take, filter, tap, skip, map } from 'rxjs/operators';
 
-import { Member, Card, ValidatorResult, FoundingMemberSignup } from './types';
+import { Member, ValidatorResult, FoundingMemberPayment } from './types';
 
-import typesTI from "./types-ti";
+import typesTI, { } from "./types-ti";
 import { createCheckers } from "ts-interface-checker";
-const { Member, Card } = createCheckers(typesTI);
+const { Member, FoundingMemberPayment } = createCheckers(typesTI);
 import { parsePhoneNumber } from 'libphonenumber-js';
 
 import { CouchDB, AuthorizationBehavior, CouchDBDocument } from '@mkeen/rxcouch';
-import { CouchDBDocumentRevisionResponse } from '@mkeen/rxcouch/dist/types';
+import { CouchDBDocumentRevisionResponse, CouchDBSession, CouchDBSessionEnvelope, CouchDBCredentials } from '@mkeen/rxcouch/dist/types';
 
 const legit = require('legit');
 
@@ -22,31 +24,75 @@ app.use(express.json());
 
 const stripe = new Stripe(process.env.STRIPE_KEY);
 
-const couchDbUsers = new CouchDB({
-  dbName: '_users',
-  host: 'localhost',
-  port: 5984,
-  ssl: false,
-  trackChanges: false
-}, AuthorizationBehavior.cookie,
-  of({
-    username: process.env.COUCH_USER,
-    password: process.env.COUCH_PASS
-  })
-);
+let couchDbUsers: CouchDB | null = null;
+let couchDbUserProfiles: CouchDB | null = null;
 
-const couchDbUserProfiles = new CouchDB({
-  dbName: 'user_profiles',
-  host: 'localhost',
-  port: 5984,
-  ssl: false,
-  trackChanges: false
-}, AuthorizationBehavior.cookie,
-  of({
-    username: process.env.COUCH_USER,
-    password: process.env.COUCH_PASS
-  })
-);
+const shouldConnect: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
+
+let stayConnected: Observable<boolean> | null = null;
+
+let appListening = false;
+
+const openCouchDBConnections = () => {
+  const credentials: Observable<CouchDBCredentials> = Observable.create((observer: Observer<CouchDBCredentials>) => {
+    shouldConnect
+      .pipe(
+        skip(1),
+        take(1)
+      )
+      .subscribe((_should) => {
+        observer.next({
+          username: process.env.COUCH_USER,
+          password: process.env.COUCH_PASS
+        })
+      })
+  });
+
+  const cycle = () => {
+    if (couchDbUsers === null && couchDbUserProfiles === null) {
+      couchDbUsers = new CouchDB({
+        dbName: '_users',
+        host: 'localhost',
+        port: 5984,
+        ssl: false,
+        trackChanges: false
+      }, AuthorizationBehavior.cookie,
+        credentials
+      );
+
+      couchDbUserProfiles = new CouchDB({
+        dbName: 'user_profiles',
+        host: 'localhost',
+        port: 5984,
+        ssl: false,
+        trackChanges: false
+      }, AuthorizationBehavior.cookie,
+        credentials
+      );
+
+      shouldConnect.next(true);
+    }
+
+  }
+
+  return Observable.create((observer1: Observer<boolean>) => {
+    of(true)
+      .pipe(tap(cycle), tap(() => {
+        observer1.next(true);
+      }))
+      .subscribe((_true) => {
+        interval(5000)
+          .pipe(
+            tap(cycle)
+          ).subscribe(() => {
+            observer1.next(true);
+          });
+
+      });
+
+  });
+
+}
 
 app.use(function(req, res, next) {
   res.header("Access-Control-Allow-Origin", "http://localhost:4200"); // update to match the domain you will make the request from
@@ -233,13 +279,36 @@ app.post('/user', (req: any, res: any) => {
               couchDbUsers.doc(doc)
                 .pipe(take(1))
                 .subscribe((savedDoc: CouchDBDocument) => {
-                  couchDbUserProfiles.doc({
-                    name: incoming.name,
-                    roles: savedDoc.roles
-                  }).pipe(take(1))
-                    .subscribe((newUserProfileDoc) => {
-                      res.end(JSON.stringify(newUserProfileDoc));
-                    });
+                  const tempCouchDbSession = new CouchDB({
+                    dbName: 'user_profiles',
+                    host: 'localhost',
+                    port: 5984,
+                    ssl: false,
+                    trackChanges: false
+                  }, AuthorizationBehavior.cookie,
+                    of({
+                      username: incoming.name,
+                      password: incoming.password
+                    })
+                  );
+
+                  tempCouchDbSession.authenticated
+                    .pipe(
+                      filter(authenticated => !!authenticated),
+                      take(1)
+                    ).subscribe((_authenticated) => {
+                      tempCouchDbSession
+                        .getSession()
+                        .subscribe((response: CouchDBSessionEnvelope) => {
+                          const parts = response.cookie.split('=');
+                          const cookieName = parts.shift();
+                          const cookieValue = parts.join('=');
+
+                          res.set('Set-Cookie', response.cookie);
+                          res.end(JSON.stringify(response.session));
+                        });
+
+                    })
 
                 });
 
@@ -253,51 +322,58 @@ app.post('/user', (req: any, res: any) => {
 
 });
 
-app.post('/user/:userId/order', (req: any, res: any) => {
+app.post('/user/:userId/payment', (req: any, res: any) => {
   res.setHeader('Content-Type', 'application/json');
-  Card.strictCheck(req.body);
-  const incoming: FoundingMemberSignup = req.body;
+  FoundingMemberPayment.strictCheck(req.body);
+  console.log(req.params.userId);
+  const incoming: FoundingMemberPayment = req.body;
   couchDbUsers.find({
     selector: {
       "_id": req.params.userId
     }
 
   }).subscribe((documents: CouchDBDocument[]) => {
+    console.log(documents);
     let matchingMember: any = documents[0];
-    if (!matchingMember['stripe_id']) {
+    if (matchingMember['stripe_id'] === undefined) {
       res.end(JSON.stringify({ error: 'no_commerce_account' }));
     } else {
       stripe.customers.retrieve(
         matchingMember['stripe_id'],
         (err: any, customer: any) => {
           console.log(err);
-
           if (customer.sources.length) {
             res.end(JSON.stringify({ error: 'card_already_added' }));
           } else {
             (<any>stripe).paymentMethods.create({
               type: 'card',
               card: {
-                number: incoming.card.account_number,
-                exp_month: incoming.card.expiration_month,
-                exp_year: incoming.card.expiration_year
+                number: incoming.cc_number,
+                exp_month: incoming.cc_exp_month,
+                exp_year: incoming.cc_exp_year
               }
 
             }, (err: any, paymentMethod: any) => {
-              console.log(err);
-              stripe.paymentIntents.create({
-                currency: 'usd',
-                confirm: true,
-                amount: 2500,
-                customer: customer.id,
-                save_payment_method: true,
-                payment_method_types: ['card'],
-                //setup_future_usage: 'off_session',
-                payment_method: paymentMethod.id
-              }, (err: any, paymentIntent: any) => {
-                console.log(err);
-                res.end(JSON.stringify(paymentIntent));
-              });
+              if (!err) {
+                stripe.paymentIntents.create({
+                  currency: 'usd',
+                  confirm: true,
+                  amount: incoming.contribution * 1000, // send to api in cents (1000 = 1 USD)
+                  customer: customer.id,
+                  save_payment_method: true,
+                  payment_method_types: ['card'],
+                  //setup_future_usage: 'off_session',
+                  payment_method: paymentMethod.id
+                }, (err: any, paymentIntent: any) => {
+                  if (!err) {
+
+                  } else {
+                    res.end(JSON.stringify(err));
+                  }
+
+                });
+
+              }
 
             });
 
@@ -312,4 +388,41 @@ app.post('/user/:userId/order', (req: any, res: any) => {
 
 });
 
-app.listen(3000, '127.0.0.1');
+openCouchDBConnections()
+  .subscribe((_a: any) => {
+    // Each 60 seconds, this fires. This is the process responsible for keeping the admin connection to couch open and authed
+    // ensure only one instance of this occuring at a time by doing this:
+    if (stayConnected === null) {
+      stayConnected = Observable.create((observer: Observer<boolean>) => {
+
+        couchDbUsers.getSession()
+          .pipe(
+            take(1),
+          )
+          .subscribe(
+            (_session: any) => {
+              if (!appListening) {
+                appListening = true;
+                app.listen(3000, '127.0.0.1', () => {
+                  observer.next(true);
+                });
+              } else {
+                observer.next(true);
+              }
+            },
+
+            (_err: any) => {
+              console.log("Could not connect to server.");
+              observer.next(true);
+            });
+
+      });
+
+      stayConnected.pipe(take(1))
+        .subscribe((_stay: any) => {
+          stayConnected = null;
+        });
+
+    }
+
+  });

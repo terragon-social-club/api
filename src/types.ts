@@ -19,9 +19,13 @@ export interface Member {
   email: string;
 }
 
-export interface FoundingMemberSignup {
-  card: Card;
-  contribution: string;
+export interface FoundingMemberPayment {
+  contribution: number;
+  cc_name: string;
+  cc_number: string;
+  cc_exp_month: string;
+  cc_exp_year: string;
+  cc_zip: string;
 }
 
 export interface Card {
