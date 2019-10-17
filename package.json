@@ -27,10 +27,10 @@
     "nodemon": "^1.19.3",
     "ts-interface-builder": "^0.1.8",
     "tslint": "^5.20.0",
-    "typescript": "^3.6.3"
+    "typescript": "^3.6.4"
   },
   "dependencies": {
-    "@mkeen/rxcouch": "3.2.4",
+    "@mkeen/rxcouch": "file:../../rxcouch",
     "cookie-parser": "^1.4.4",
     "cookie-session": "^1.3.3",
     "express": "^4.17.1",

@@ -1,7 +1,7 @@
 import express from 'express';
 
 import Stripe from "stripe";
-import { of, Observable, Observer, zip, interval, BehaviorSubject } from 'rxjs';
+import { of, Observable, Observer, zip, interval, BehaviorSubject, Subject } from 'rxjs';
 import { take, filter, tap, skip } from 'rxjs/operators';
 
 import { Member, ValidatorResult, FoundingMemberPayment } from './types';
@@ -12,7 +12,7 @@ const { Member, FoundingMemberPayment } = createCheckers(typesTI);
 import { parsePhoneNumber } from 'libphonenumber-js';
 
 import { CouchDB, AuthorizationBehavior, CouchDBDocument } from '@mkeen/rxcouch';
-import { CouchDBSessionEnvelope, CouchDBCredentials } from '@mkeen/rxcouch/dist/types';
+import { CouchDBCredentials, CouchDBSession } from '@mkeen/rxcouch/dist/types';
 
 const legit = require('legit');
 
@@ -75,6 +75,7 @@ const cycle = () => {
 }
 
 const openCouchDBConnections = () => {
+  let mainLoop: Observable<any>;
   return Observable.create((mainObserver: Observer<boolean>) => {
     of(true)
       .pipe(
@@ -82,13 +83,28 @@ const openCouchDBConnections = () => {
         tap(() => {
           mainObserver.next(true);
         }),
-        take(1),
+        take(1)
       )
       .subscribe((_true) => {
-        interval(5000)
+        interval(3000)
           .pipe(
-            tap(cycle)
+            tap(cycle),
+            filter((_i: any) => {
+              if (!mainLoop) {
+                mainLoop = interval(30000);
+                mainLoop.subscribe(() => mainObserver.next(true));
+                return true;
+              }
+
+              if (couchDbUsers && couchDbUserProfiles.authenticated.value) {
+                return false;
+              } else {
+                return false;
+              }
+
+            })
           ).subscribe(() => {
+            console.log("should be blocked");
             mainObserver.next(true);
           });
 
@@ -137,7 +153,9 @@ const validateUsername = (username: any) => {
 }
 
 const startExpress = () => {
+  console.log("starting express");
   if (runningApp !== null) {
+    console.log("quitting existing express");
     runningApp.close();
     runningApp = null;
   }
@@ -164,6 +182,7 @@ const startExpress = () => {
 
   app.post('/user', (req: any, res: any) => {
     res.setHeader('Content-Type', 'application/json');
+
     Member.strictCheck(req.body);
     const incoming: Member = req.body;
 
@@ -294,31 +313,43 @@ const startExpress = () => {
                 couchDbUsers.doc(doc)
                   .pipe(take(1))
                   .subscribe((_savedDoc: CouchDBDocument) => {
-                    const tempCouchDbSession = new CouchDB({
-                      dbName: 'user_profiles',
-                      host: 'localhost',
-                      port: 5984,
-                      ssl: false,
-                      trackChanges: false
-                    }, AuthorizationBehavior.cookie,
-                      of({
-                        username: incoming.name,
-                        password: incoming.password
-                      })
+                    console.log("saved initial", _savedDoc);
 
+                    const credentials: Subject<CouchDBCredentials> = new Subject();
+
+                    const credentialsObservable = Observable.create((observer: Observer<CouchDBCredentials>) => {
+                      credentials.pipe(take(1)).subscribe(creds => observer.next(creds));
+                    });
+
+                    const tempCouchDbSession = new CouchDB(
+                      {
+                        dbName: 'user_profiles',
+                        host: 'localhost',
+                        port: 5984,
+                        ssl: false,
+                        trackChanges: false
+                      },
+
+                      AuthorizationBehavior.cookie,
+                      credentialsObservable
                     );
 
                     tempCouchDbSession.authenticated
                       .pipe(
-                        filter(authenticated => !!authenticated),
-                        take(1)
+                        filter(authenticated => !!authenticated)
                       ).subscribe((_authenticated) => {
+                        console.log("got auth", _authenticated);
                         tempCouchDbSession
-                          .getSession()
-                          .subscribe((response: CouchDBSessionEnvelope) => {
-                            res.set('Set-Cookie', response.cookie);
-                            res.end(JSON.stringify(response.session));
-                          });
+                          .cookie
+                          .pipe(
+                            filter(cookie => cookie !== null),
+                            take(1)
+                          )
+                          .subscribe((cookie) => {
+                            console.log(cookie, "sending final req");
+                            res.set('Set-Cookie', cookie);
+                            res.end(JSON.stringify({}));
+                          })
 
                       })
 
@@ -404,49 +435,48 @@ const startExpress = () => {
 
 let runningApp: any = null;
 
-openCouchDBConnections()
-  .subscribe((_a: any) => {
-    // Each 5 seconds, this fires. This is the process responsible for keeping the admin connection to couch open and authed
-    // ensure only one instance of this occuring at a time by doing this:
-    if (stayConnected === null) {
-      stayConnected = Observable.create((observer: Observer<boolean>) => {
-        zip(couchDbUsers.getSession(),
-          couchDbUserProfiles.getSession())
-          .pipe(take(1))
-          .subscribe(
-            (_sessions: CouchDBSessionEnvelope[]) => {
-              if (runningApp === null) {
-                startExpress();
-                console.log("starting http server");
-                runningApp = app.listen(3000, '127.0.0.1', () => {
-                  observer.next(true);
-                });
-
-              } else {
+openCouchDBConnections().subscribe((_a: any) => {
+  // ensure only one instance of this occuring at a time by doing this:
+  if (stayConnected === null) {
+    stayConnected = Observable.create((observer: Observer<boolean>) => {
+      zip(couchDbUsers.getSession(),
+        couchDbUserProfiles.getSession())
+        .pipe(take(1))
+        .subscribe(
+          (_sessions: CouchDBSession[]) => {
+            console.log(_sessions);
+            if (runningApp === null) {
+              startExpress();
+              console.log("starting http server");
+              runningApp = app.listen(3000, '127.0.0.1', () => {
                 observer.next(true);
-              }
+              });
 
-            },
-
-            (_err: any) => {
-              console.log("could not connect to couchdb");
-              if (runningApp !== null) {
-                console.log("stopping http server");
-                runningApp.close();
-                runningApp = null;
-              }
-
+            } else {
               observer.next(true);
             }
 
-          );
+          },
 
-      });
+          (_err: any) => {
+            console.log("could not connect to couchdb");
+            if (runningApp !== null) {
+              console.log("stopping http server");
+              runningApp.close();
+              runningApp = null;
+            }
 
-      stayConnected.pipe(take(1)).subscribe((_stay: any) => {
-        stayConnected = null;
-      });
+            observer.next(true);
+          }
 
-    }
+        );
 
-  });
+    });
+
+    stayConnected.pipe(take(1)).subscribe((_stay: any) => {
+      stayConnected = null;
+    });
+
+  }
+
+});
