@@ -164,7 +164,7 @@ const startExpress = () => {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
 
-  app.use(function(_req: any, res: any, next: any) {
+  app.use(function(_req: any, res: any, next: any) { 
     res.header("Access-Control-Allow-Origin", "http://localhost:4200"); // update to match the domain you will make the request from
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
@@ -313,45 +313,52 @@ const startExpress = () => {
                 couchDbUsers.doc(doc)
                   .pipe(take(1))
                   .subscribe((_savedDoc: CouchDBDocument) => {
-                    console.log("saved initial", _savedDoc);
-
                     const credentials: Subject<CouchDBCredentials> = new Subject();
 
                     const credentialsObservable = Observable.create((observer: Observer<CouchDBCredentials>) => {
                       credentials.pipe(take(1)).subscribe(creds => observer.next(creds));
                     });
 
-                    const tempCouchDbSession = new CouchDB(
-                      {
-                        dbName: 'user_profiles',
-                        host: 'localhost',
-                        port: 5984,
-                        ssl: false,
-                        trackChanges: false
-                      },
-
-                      AuthorizationBehavior.cookie,
-                      credentialsObservable
-                    );
-
-                    tempCouchDbSession.authenticated
-                      .pipe(
-                        filter(authenticated => !!authenticated)
-                      ).subscribe((_authenticated) => {
-                        console.log("got auth", _authenticated);
-                        tempCouchDbSession
-                          .cookie
-                          .pipe(
-                            filter(cookie => cookie !== null),
-                            take(1)
-                          )
-                          .subscribe((cookie) => {
-                            console.log(cookie, "sending final req");
-                            res.set('Set-Cookie', cookie);
-                            res.end(JSON.stringify({}));
-                          })
-
-                      })
+                    couchDbUserProfiles.doc({
+                      _id: incoming.name,
+                      roles: newUserDocument.roles
+                    }).pipe(take(1)).subscribe((_profile) => {
+                      const tempCouchDbSession = new CouchDB(
+                        {
+                          dbName: 'user_profiles',
+                          host: 'localhost',
+                          port: 5984,
+                          ssl: false,
+                          trackChanges: false
+                        },
+  
+                        AuthorizationBehavior.cookie,
+                        credentialsObservable
+                      );
+  
+                      tempCouchDbSession.authenticated
+                        .pipe(
+                          filter(authenticated => !!authenticated)
+                        ).subscribe((_authenticated) => {
+                          tempCouchDbSession
+                            .cookie
+                            .pipe(
+                              filter(cookie => cookie !== null),
+                              take(1)
+                            )
+                            .subscribe((cookie) => {
+                              res.set('Set-Cookie', cookie);
+                              res.end(JSON.stringify({}));
+                            })
+  
+                        });
+  
+                      credentials.next({
+                        username: incoming.name,
+                        password: incoming.password
+                      });
+                      
+                    })
 
                   });
 
@@ -444,7 +451,6 @@ openCouchDBConnections().subscribe((_a: any) => {
         .pipe(take(1))
         .subscribe(
           (_sessions: CouchDBSession[]) => {
-            console.log(_sessions);
             if (runningApp === null) {
               startExpress();
               console.log("starting http server");
@@ -461,7 +467,6 @@ openCouchDBConnections().subscribe((_a: any) => {
           (_err: any) => {
             console.log("could not connect to couchdb");
             if (runningApp !== null) {
-              console.log("stopping http server");
               runningApp.close();
               runningApp = null;
             }
