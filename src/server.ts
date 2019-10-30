@@ -336,29 +336,33 @@ const startExpress = () => {
                         credentialsObservable
                       );
   
-                      tempCouchDbSession.authenticated
-                        .pipe(
-                          filter(authenticated => !!authenticated)
-                        ).subscribe((_authenticated) => {
-                          tempCouchDbSession
+                      tempCouchDbSession.authenticated.pipe(
+                        filter(authenticated => !!authenticated),
+                        take(1)
+                      ).subscribe((_authenticated) => {
+                        tempCouchDbSession.getSession()
+                          .pipe(take(1))
+                          .subscribe((couchDbSession) => {
+                            tempCouchDbSession
                             .cookie
                             .pipe(
                               filter(cookie => cookie !== null),
                               take(1)
-                            )
-                            .subscribe((cookie) => {
+                            ).subscribe((cookie) => {
                               res.set('Set-Cookie', cookie);
-                              res.end(JSON.stringify({}));
-                            })
-  
+                              res.end(JSON.stringify(couchDbSession.userCtx));
+                            });
+
                         });
-  
+
+                      });
+
                       credentials.next({
                         username: incoming.name,
                         password: incoming.password
                       });
-                      
-                    })
+
+                    });
 
                   });
 
@@ -374,17 +378,14 @@ const startExpress = () => {
 
   app.post('/user/:userId/payment', (req: any, res: any) => {
     res.setHeader('Content-Type', 'application/json');
+    console.log(req)
     FoundingMemberPayment.strictCheck(req.body);
     console.log(req.params.userId);
     const incoming: FoundingMemberPayment = req.body;
-    couchDbUsers.find({
-      selector: {
-        "_id": req.params.userId
-      }
-
-    }).subscribe((documents: CouchDBDocument[]) => {
-      console.log(documents);
-      let matchingMember: any = documents[0];
+    couchDbUsers.doc(req.params.userId)
+    .subscribe((document: CouchDBDocument) => {
+      console.log(document);
+      let matchingMember: any = document;
       if (matchingMember['stripe_id'] === undefined) {
         res.end(JSON.stringify({ error: 'no_commerce_account' }));
       } else {
