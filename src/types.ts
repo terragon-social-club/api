@@ -33,3 +33,7 @@ export interface Card {
   expiration_month: number;
   expiration_year: number;
 }
+
+export interface Invite {
+  invite_code: string;
+}

@@ -40,11 +40,16 @@ export const Card = t.iface([], {
   "expiration_year": "number",
 });
 
+export const Invite = t.iface([], {
+  "invite_code": "string",
+});
+
 const exportedTypeSuite: t.ITypeSuite = {
   ValidatorError,
   ValidatorResult,
   Member,
   FoundingMemberPayment,
   Card,
+  Invite,
 };
 export default exportedTypeSuite;

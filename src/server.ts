@@ -4,11 +4,11 @@ import Stripe from "stripe";
 import { of, Observable, Observer, zip, interval, BehaviorSubject, Subject } from 'rxjs';
 import { take, filter, tap, skip } from 'rxjs/operators';
 
-import { Member, ValidatorResult, FoundingMemberPayment } from './types';
+import { Member, ValidatorResult, FoundingMemberPayment, Invite } from './types';
 
 import typesTI, { } from "./types-ti";
 import { createCheckers } from "ts-interface-checker";
-const { Member, FoundingMemberPayment } = createCheckers(typesTI);
+const { Member, FoundingMemberPayment, Invite } = createCheckers(typesTI);
 import { parsePhoneNumber } from 'libphonenumber-js';
 
 import { CouchDB, AuthorizationBehavior, CouchDBDocument } from '@mkeen/rxcouch';
@@ -20,6 +20,7 @@ const stripe = new Stripe(process.env.STRIPE_KEY);
 
 let couchDbUsers: CouchDB | null = null;
 let couchDbUserProfiles: CouchDB | null = null;
+let couchDbInviteCodes: CouchDB | null = null;
 
 const shouldConnect: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
 
@@ -59,6 +60,19 @@ const cycle = () => {
     couchDbUserProfiles = new CouchDB(
       {
         dbName: 'user_profiles',
+        host: 'localhost',
+        port: 5984,
+        ssl: false,
+        trackChanges: false
+      },
+
+      AuthorizationBehavior.cookie,
+      credentials
+    );
+
+    couchDbInviteCodes = new CouchDB(
+      {
+        dbName: 'invite_codes',
         host: 'localhost',
         port: 5984,
         ssl: false,
@@ -376,14 +390,72 @@ const startExpress = () => {
 
   });
 
+  app.post('/user/:userId/invite', (req: any, res: any) => {
+    res.setHeader('Content-Type', 'application/json');
+    Invite.strictCheck(req.body);
+    const incoming: Invite = req.body;
+    const userDoc = couchDbUsers.doc(`org.couchdb.user:${req.params.userId}`);
+    userDoc.pipe(take(1)).subscribe((document: CouchDBDocument) => {
+      let matchingMember: any = document;
+      if (!matchingMember.roles.includes('pending_member')) {
+        res.end(JSON.stringify({error: 'account_ineligable'}));
+      } else {
+        console.log({
+          selector: {
+            code: incoming.invite_code,
+            redeemed_by_user_id: null
+          }
+
+        })
+        couchDbInviteCodes.find({
+          selector: {
+            code: incoming.invite_code
+          }
+
+        }).pipe(take(1)).subscribe((results: CouchDBDocument[]) => {
+          if (results.length === 1) {
+            const referrerDoc = results[0];
+
+            document.roles = (<string[]>document.roles).filter(role => role !== 'pending_member');
+            document.referrer_code_id = referrerDoc._id;
+
+            referrerDoc.redeemed_by_user_id = matchingMember._id;
+
+            couchDbInviteCodes.doc(referrerDoc).subscribe((_x) => {
+              couchDbUserProfiles.doc(req.params.userId).pipe(take(1)).subscribe((profileDoc) => {
+                profileDoc.roles = document.roles;
+                
+                couchDbUsers.doc(document).pipe(take(1)).subscribe((_userDoc) => {
+                  couchDbUserProfiles.doc(profileDoc).pipe(take(1)).subscribe((newProfileDoc) => {
+                    
+                    res.end(JSON.stringify(newProfileDoc));
+                  });
+              
+                });
+  
+              });
+  
+            });
+            
+          } else {
+            res.end(JSON.stringify({error: 'invalid_code'}));
+          }
+          
+        })
+         
+      }
+
+    });
+
+  })
+
   app.post('/user/:userId/payment', (req: any, res: any) => {
     res.setHeader('Content-Type', 'application/json');
     console.log(req)
     FoundingMemberPayment.strictCheck(req.body);
     console.log(req.params.userId);
     const incoming: FoundingMemberPayment = req.body;
-    couchDbUsers.doc(req.params.userId)
-    .subscribe((document: CouchDBDocument) => {
+    couchDbUsers.doc(req.params.userId).subscribe((document: CouchDBDocument) => {
       console.log(document);
       let matchingMember: any = document;
       if (matchingMember['stripe_id'] === undefined) {
