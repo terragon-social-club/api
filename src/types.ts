@@ -20,12 +20,12 @@ export interface Member {
 }
 
 export interface FoundingMemberPayment {
-  contribution: number;
   cc_name: string;
   cc_number: string;
   cc_exp_month: string;
   cc_exp_year: string;
-  cc_zip: string;
+  cc_zipcode: string;
+  cc_terms_agree: boolean;
 }
 
 export interface Card {
