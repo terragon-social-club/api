@@ -11,7 +11,7 @@ import { createCheckers } from "ts-interface-checker";
 const { Member, FoundingMemberPayment, Invite } = createCheckers(typesTI);
 import { parsePhoneNumber } from 'libphonenumber-js';
 
-import { CouchDB, AuthorizationBehavior, CouchDBDocument, Cluster } from '@mkeen/rxcouch';
+import { CouchDB, AuthorizationBehavior, CouchDBDocument } from '@mkeen/rxcouch';
 import { CouchDBCredentials, CouchDBSession } from '@mkeen/rxcouch/dist/types';
 
 const legit = require('legit');
