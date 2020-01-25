@@ -422,8 +422,8 @@ const startExpress = () => {
             .subscribe((invite) => {
               if(!invite.redeemed_by) {
                 invite.redeemed_by = `org.couchdb.user:${userProfileDoc._id}`;
-                userProfileDoc.roles = ['member', 'founding_member'];
-                document.roles = ['member', 'founding_member'];
+                userProfileDoc.roles = ['member', 'freeloader'];
+                document.roles = ['member', 'freeloader'];
                 zip(
                   couchDbUsers.doc(document),
                   couchDbUserProfiles.doc(userProfileDoc),
