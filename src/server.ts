@@ -1,7 +1,7 @@
 import express from 'express';
 
 import Stripe from "stripe";
-import { of, Observable, Observer, zip, interval, BehaviorSubject, Subject } from 'rxjs';
+import { of, Observable, Observer, zip, interval, BehaviorSubject, Subject, pipe } from 'rxjs';
 import { take, filter, tap, skip } from 'rxjs/operators';
 
 import { Member, ValidatorResult, FoundingMemberPayment, Invite } from './types';
@@ -27,6 +27,8 @@ const shouldConnect: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(fal
 
 let stayConnected: Observable<boolean> | null = null;
 
+const { COUCH_HOST, COUCH_PASS, COUCH_USER, COUCH_PORT, ORIGIN, API_BIND_IP } = process.env;
+
 const credentials: Observable<CouchDBCredentials> = Observable.create((observer: Observer<CouchDBCredentials>) => {
   shouldConnect
     .pipe(
@@ -35,8 +37,8 @@ const credentials: Observable<CouchDBCredentials> = Observable.create((observer:
     )
     .subscribe((_should) => {
       observer.next({
-        username: process.env.COUCH_USER,
-        password: process.env.COUCH_PASS
+        username: COUCH_USER,
+        password: COUCH_PASS
       })
 
     })
@@ -44,13 +46,12 @@ const credentials: Observable<CouchDBCredentials> = Observable.create((observer:
 });
 
 const cycle = () => {
-  const hosts = JSON.parse(process.env.COUCH_ADDRESSES);
   if (couchDbUsers === null && couchDbUserProfiles === null) {
     couchDbUsers = new CouchDB(
       {
         dbName: '_users',
-        host: hosts,
-        port: 5984,
+        host: COUCH_HOST,
+        port: parseInt(COUCH_PORT),
         ssl: false,
         trackChanges: false
       },
@@ -62,8 +63,8 @@ const cycle = () => {
     terragonSysInfo = new CouchDB(
       {
         dbName: 'terragon_sysinfo',
-        host: hosts,
-        port: 5984,
+        host: COUCH_HOST,
+        port: parseInt(COUCH_PORT),
         ssl: false,
         trackChanges: false
       },
@@ -75,8 +76,8 @@ const cycle = () => {
     couchDbUserProfiles = new CouchDB(
       {
         dbName: 'user_profiles',
-        host: hosts,
-        port: 5984,
+        host: COUCH_HOST,
+        port: parseInt(COUCH_PORT),
         ssl: false,
         trackChanges: false
       },
@@ -88,8 +89,8 @@ const cycle = () => {
     couchDbInviteCodes = new CouchDB(
       {
         dbName: 'invite_codes',
-        host: hosts,
-        port: 5984,
+        host: COUCH_HOST,
+        port: parseInt(COUCH_PORT),
         ssl: false,
         trackChanges: false
       },
@@ -193,7 +194,7 @@ const startExpress = () => {
   app.use(express.json());
 
   app.use(function(_req: any, res: any, next: any) { 
-    res.header("Access-Control-Allow-Origin", "https://www.terragon.us"); // update to match the domain you will make the request from
+    res.header("Access-Control-Allow-Origin", ORIGIN); // update to match the domain you will make the request from
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     next();
@@ -326,6 +327,7 @@ const startExpress = () => {
             name: incoming.name
           });
 
+          console.log("creating new user document");
           couchDbUsers.doc(newUserDocument)
             .pipe(take(1))
             .subscribe((newUserDoc: CouchDBDocument) => {
@@ -351,11 +353,12 @@ const startExpress = () => {
                       _id: incoming.name,
                       roles: newUserDocument.roles
                     }).pipe(take(1)).subscribe((profile) => {
+                      console.log("profile created!", profile);
                       const tempCouchDbSession = new CouchDB(
                         {
                           dbName: 'user_profiles',
-                          host: JSON.parse(process.env.COUCH_ADDRESSES),
-                          port: 5984,
+                          host: COUCH_HOST,
+                          port: parseInt(COUCH_PORT),
                           ssl: false,
                           trackChanges: false
                         },
@@ -408,64 +411,50 @@ const startExpress = () => {
     res.setHeader('Content-Type', 'application/json');
     Invite.strictCheck(req.body);
     const incoming: Invite = req.body;
-    const userDoc = couchDbUsers.doc(`org.couchdb.user:${req.params.userId}`);
-    userDoc.pipe(take(1)).subscribe((document: CouchDBDocument) => {
+    couchDbUsers.doc(req.params.userId).subscribe((document: CouchDBDocument) => {
       let matchingMember: any = document;
       if (!matchingMember.roles.includes('pending_member')) {
-        res.end(JSON.stringify({error: 'account_ineligable'}));
+        res.end(JSON.stringify({error: 'ineligable'}));
       } else {
-        couchDbInviteCodes.find({
-          selector: {
-            code: incoming.invite_code
-          }
-
-        }).pipe(take(1)).subscribe((results: CouchDBDocument[]) => {
-          if (results.length === 1) {
-            const referrerDoc = results[0];
-
-            document.roles = (<string[]>document.roles)
-                               .filter(role => role !== 'pending_member')
-                               .concat(['freeloader', 'founding_member']);
-
-            document.referrer_code_id = referrerDoc._id;
-
-            referrerDoc.redeemed_by_user_id = matchingMember._id;
-
-            couchDbInviteCodes.doc(referrerDoc).subscribe((_x) => {
-              couchDbUserProfiles.doc(req.params.userId).pipe(take(1)).subscribe((profileDoc) => {
-                profileDoc.roles = document.roles;
-                
-                couchDbUsers.doc(document).pipe(take(1)).subscribe((_userDoc) => {
-                  couchDbUserProfiles.doc(profileDoc).pipe(take(1)).subscribe((newProfileDoc) => {
-                    res.end(JSON.stringify(newProfileDoc));
-                  });
-              
+        couchDbUserProfiles.doc(matchingMember.name).pipe(take(1)).subscribe((userProfileDoc) => {
+          couchDbInviteCodes.doc(incoming.invite_code)
+            .pipe(take(1))
+            .subscribe((invite) => {
+              if(!invite.redeemed_by) {
+                invite.redeemed_by = `org.couchdb.user:${userProfileDoc._id}`;
+                userProfileDoc.roles = ['member', 'founding_member'];
+                document.roles = ['member', 'founding_member'];
+                zip(
+                  couchDbUsers.doc(document),
+                  couchDbUserProfiles.doc(userProfileDoc),
+                  couchDbInviteCodes.doc(invite),
+                ).subscribe((finished) => {
+                  res.end(JSON.stringify(finished));
                 });
-  
-              });
-  
+
+              } else {
+                res.end(JSON.stringify({error: 'already_redeemed'}));
+              }
+              
+            }, (_err) => {
+              res.end(JSON.stringify({error: 'no_invite'}));
             });
-            
-          } else {
-            res.end(JSON.stringify({error: 'invalid_code'}));
-          }
-          
-        })
+
+        });
          
       }
 
+    }, (_userNotFoundErr) => {
+      res.end(JSON.stringify({error: 'no_user'}));
     });
 
-  })
+  });
 
   app.post('/user/:userId/payment', (req: any, res: any) => {
     res.setHeader('Content-Type', 'application/json');
-    console.log(req)
     FoundingMemberPayment.strictCheck(req.body);
-    console.log(req.params.userId);
     const incoming: FoundingMemberPayment = req.body;
-    couchDbUsers.doc(req.params.userId).subscribe((document: CouchDBDocument) => {
-      console.log(document);
+    couchDbUsers.doc(req.params.userId).pipe(take(1)).subscribe((document: CouchDBDocument) => {
       let matchingMember: any = document;
       if (matchingMember['stripe_id'] === undefined) {
         res.end(JSON.stringify({ error: 'no_commerce_account' }));
@@ -473,7 +462,6 @@ const startExpress = () => {
         stripe.customers.retrieve(
           matchingMember['stripe_id'],
           (err: any, customer: any) => {
-            console.log(err);
             if (customer.sources.length) {
               res.end(JSON.stringify({ error: 'card_already_added' }));
             } else {
@@ -490,7 +478,7 @@ const startExpress = () => {
                   stripe.paymentIntents.create({
                     currency: 'usd',
                     confirm: true,
-                    amount: 100000, // send to api in cents (1000 = 1 USD)
+                    amount: 10000, // send to api in cents (100 = 1 USD)
                     customer: customer.id,
                     save_payment_method: true,
                     payment_method_types: ['card'],
@@ -498,6 +486,22 @@ const startExpress = () => {
                     payment_method: paymentMethod.id
                   }, (err: any, _paymentIntent: any) => {
                     if (!err) {
+                      // Here's where we make the user full fledged
+                      couchDbUserProfiles.doc(matchingMember.name).pipe(take(1)).subscribe((userProfileDoc) => {
+                        userProfileDoc.roles = ['member', 'founding_member'];
+                        matchingMember.roles = ['member', 'founding_member'];
+                        zip(
+                          couchDbUsers.doc(matchingMember),
+                          couchDbUserProfiles.doc(userProfileDoc),
+                          couchDbInviteCodes.doc({
+                            _id: Math.random().toString(16).substring(2, 15) + Math.random().toString(16).substring(2, 5),
+                            created_by_user: req.params.userId
+                          })
+                        ).subscribe((finished) => {
+                          res.end(JSON.stringify(finished));
+                        });
+
+                      });
 
                     } else {
                       res.end(JSON.stringify(err));
@@ -505,6 +509,8 @@ const startExpress = () => {
 
                   });
 
+                } else {
+                  res.end(JSON.stringify(err));
                 }
 
               });
@@ -538,14 +544,17 @@ openCouchDBConnections().subscribe((_a: any) => {
           (_sessions: CouchDBSession[]) => {
             if (runningApp === null) {
               startExpress();
-              console.log("checking for bootstrap");
-              terragonSysInfo.doc('nonexistent doc').subscribe((success) => {
-                console.log("starting http server");
-                runningApp = app.listen(3000, process.env.API_BIND_IP, () => {
+              //console.log("checking for bootstrap");
+              //terragonSysInfo.doc('nonexistent doc').subscribe((success) => {
+              //  console.log("starting http server");
+                runningApp = app.listen(3000, API_BIND_IP, () => {
                   observer.next(true);
                 });
 
-              }, (error) => {console.log("error!")})
+              //}, (error) => {
+              //  console.log("need to do bootstrap here");
+              //  observer.next(true);
+              //})
             } else {
               observer.next(true);
             }
