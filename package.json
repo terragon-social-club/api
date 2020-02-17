@@ -1,6 +1,6 @@
 {
   "name": "@terragon/api",
-  "version": "1.5.26",
+  "version": "1.6.1",
   "description": "Secure API For Database Writes",
   "main": "index.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "watch-node": "nodemon dist/server.js",
     "watch-ts": "tsc -w",
     "types": "ts-interface-builder src/types.ts",
-    "dev": "API_BIND_IP=127.0.0.1 ORIGIN=http://localhost:4200 STRIPE_KEY=sk_test_T2LvLVTcu1EHVi2jFBpAYKYx COUCH_USER=guest COUCH_PASS=guest COUCH_PORT=5984 COUCH_HOST=localhost node dist/server.js"
+    "dev": "API_BIND_IP=10.0.0.115 ORIGIN=http://localhost:4200 STRIPE_KEY=sk_test_T2LvLVTcu1EHVi2jFBpAYKYx COUCH_USER=guest COUCH_PASS=guest COUCH_PORT=5984 COUCH_HOST=10.0.0.115 node dist/server.js"
   },
   "repository": {
     "type": "git",
@@ -31,7 +31,7 @@
     "typescript": "^3.7.5"
   },
   "dependencies": {
-    "@mkeen/rxcouch": "^3.7.0",
+    "@mkeen/rxcouch": "^4.1.1",
     "cookie-parser": "^1.4.4",
     "cookie-session": "^1.4.0",
     "express": "^4.17.1",
